@@ -1,0 +1,5 @@
+import {z} from 'zod';
+import {handle,owner,body,reserveBudget,AppError} from '@/lib/server';
+import {withAccount,xRequest} from '@/lib/x-client';
+import type {Analytics,XPost} from '@/lib/types';
+export async function POST(request:Request){return handle(async()=>{const id=await owner(request);const p=z.object({account_id:z.string().uuid()}).parse(await body(request));return withAccount(id,p.account_id,async a=>{await reserveBudget(id,160000);const profile=await xRequest<{data:Analytics['profile']}>(a,'users/me?user.fields=public_metrics');const result=await xRequest<{data?:XPost[];meta?:{result_count:number};errors?:unknown[]}>(a,'users/'+a.x_user_id+'/tweets?max_results=30&exclude=retweets,replies&tweet.fields=created_at,public_metrics');if(!profile.data||result.errors?.length)throw new AppError('X returned incomplete analytics. Please try again later.',502);return {accountId:a.id,fetchedAt:new Date().toISOString(),profile:profile.data,posts:result.data||[]} satisfies Analytics;});});}
