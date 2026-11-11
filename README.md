@@ -1,63 +1,63 @@
-# XGrowth — Content Studio
+# SignalDesk
 
-A private working application for original X content, persistent drafts, publication planning, and account-owner-controlled publishing. It does not promise followers, fast growth, or freedom from suspension. The research and business case is in [docs/X-API-CASE-STUDY.md](docs/X-API-CASE-STUDY.md) and inside the app.
+SignalDesk is a private X workspace for writing original posts, reviewing mentions, scheduling approved drafts, and tracking usage. Drafting, campaign planning, voice profiles, the calendar, and local rules work without an X or AI subscription.
 
-## Implemented
+## Run locally
 
-- Responsive overview, content studio, weekly planner, insights, API study, and settings.
-- Owner-scoped D1 persistence for drafts, settings, connections, and budget reservations.
-- Editorial writing templates; no paid language-model dependency or simulated AI generation.
-- X OAuth 2.0 with S256 PKCE, single-use state, browser cookie binding, encrypted server-side access/refresh tokens, and token renewal.
-- Multiple authorized X profile connections and disconnection.
-- User-triggered reads of the connected profile and up to 30 original posts.
-- Exact-text publishing confirmation, weighted Unicode/emoji/URL validation, stored-draft duplicate checks, atomic account leases and draft state changes.
-- Conservative monthly API allowance and persistent X rate-limit backoff.
-- Uncertain publishing outcomes blocked from automatic retry; check X before reconciling.
-- Privacy explanation and workspace-data deletion.
-
-Planning dates are manual reminders. There is no background scheduler, AI reply bot, auto-like, auto-follow, bulk messaging, scraping, or ban-evasion feature. Fetched X post text is not saved to the database. The frontend clears fetched analytics after 15 minutes; server responses use `Cache-Control: no-store`.
-
-## Local development
-
-Node 22.14+; React/Vinext; Cloudflare Worker; D1 with generated Drizzle migrations.
+Use Node 22.14 or later and npm. From the project directory, run the following in PowerShell.
 
 ```powershell
 npm run install:ci
-npm run build
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_tough_dexter_bennett.sql
+npm run setup:local
 npm run dev
 ```
 
-The preview prints its local URL. Its sign-in link simulates identity for loopback development only; production identity comes from the private Sites dispatcher. No development identity fallback exists in application routes. Apply each migration once, in order; Sites applies production migrations during publishing.
-
-Use `npm run install:ci` after cloning: it includes required development and optional packages even if the host defaults to production-only installs. Stop the preview before changing dependencies on Windows to avoid file locks.
-
-## Connect a real X account
-
-1. Create an X developer web app with OAuth 2.0 and read/write permissions. Fund API credits.
-2. Set `APP_ORIGIN` to the exact trusted app origin. Register `APP_ORIGIN/api/x/callback` as the X callback.
-3. Set `X_CLIENT_ID`, `X_CLIENT_SECRET`, and `X_TOKEN_ENCRYPTION_KEY` as server-side secrets. The encryption key is 32 cryptographically random bytes encoded as 64 hexadecimal characters. Do not replace it while existing tokens depend on it without a migration/reconnect plan.
-4. Local development reads the ignored `.env`; copy field names from `.env.example`. Hosted runtime secrets are managed through Sites and require deployment to apply.
-5. Use Settings → Connect X account and approve `tweet.read tweet.write users.read offline.access` on X.
-
-The private deployment has its origin and encryption key configured. X client credentials and account authorization remain. No real X account, live billing, or publication was tested during this build.
-
-## Verification
+Open [the local workspace](http://localhost:5173) and choose **Sign in to connect**. The development server simulates one owner on loopback. Settings shows which X credentials are still needed. You can write and save drafts immediately after local sign-in. Open a second terminal for scheduled publishing and local rules.
 
 ```powershell
-node node_modules/typescript/bin/tsc --noEmit
-node scripts/test-app.mjs
+npm run worker
+```
+
+The setup command preserves existing environment values, generates missing server keys, and applies ordered SQL migrations to local D1. Stop and restart the web process and worker after changing environment values. Both processes must use the same origin and worker secret. The local worker reads its schedule from D1 at each tick. Keep the machine and both processes running when delivery is due. Overnight downtime delays eligible jobs until the next successful tick.
+
+The repository uses the existing React, Vinext, TypeScript, Cloudflare D1, and R2 foundation. D1 stores workflow and accounting records. R2 stores private draft images. SQLite-compatible SQL migrations in `drizzle/` are applied using Wrangler migration tracking. The starter Drizzle generation command describes the original baseline schema only. New schema changes use ordered SQL migrations.
+
+## Connect X and publish
+
+1. Register a confidential OAuth 2.0 web app in the X developer console. Register the exact local callback `http://localhost:5173/api/x/callback`, or the HTTPS deployment origin followed by `/api/x/callback`.
+2. Set `X_CLIENT_ID`, `X_CLIENT_SECRET`, and the matching `APP_ORIGIN` in the server environment. Retain the encryption key created during local setup.
+3. In Settings, connect X and verify the returned handle. Select a timezone and open Costs & usage to set daily and monthly limits.
+4. Review the resource cap and cost estimate before importing owned posts or mentions. Unknown public metrics remain unavailable.
+5. Save an original draft or open an imported conversation in Engage. Review the writing, selected account, target and estimate. Approve immediate delivery or select a local time.
+6. Follow the result in Calendar & queue and Activity. For replies with insufficient evidence, use Copy reply and Open original on X. A pending dispatch can remain ambiguous after a network failure. Review it before considering any additional action.
+
+Thread, quote, and image drafts can be prepared locally. API delivery for those formats stays gated until account entitlements and a matching transport are verified. AI-assisted replies stay draft-only. For credentials, eligibility rules, endpoint evidence and billing assumptions, see [integration capabilities](docs/integration-capabilities.md), [the cost model](docs/cost-model.md), and [queue operation](docs/queue.md).
+
+## Optional tools
+
+- **Local AI.** Configure `OLLAMA_MODEL` with the name of an installed local Ollama model. The application calls the fixed loopback Ollama service. Selected writing, knowledge, voice and explicitly requested conversation context are the model inputs. Local-model token counts are recorded when returned. Hardware and electricity costs are outside the X spending ledger.
+- **Automations.** Create a daily or weekly local review, release draft, mention digest or failure report. The worker records one result per scheduled occurrence. A dry run previews the result. Workspace pause applies to scheduled rules and publishing.
+- **Developer API.** Issue a short-lived scoped key in Settings. Send a JSON POST to `/api/developer` with a bearer token and a `tool` value of `list_drafts`, `create_draft`, `request_review`, `job_status`, or `workspace_summary`. Draft creation also needs `text`. Status and review requests need `id`. The server enforces the bound account and permits 30 requests per key per minute.
+- **MCP.** Launch `node scripts/desk-mcp.mjs` from a local MCP client with `APP_ORIGIN` and `SIGNALDESK_API_TOKEN` in the process environment. It uses newline-delimited JSON-RPC over stdio and the same scoped HTTP services. Human approval remains inside the app.
+- **Outcomes.** Configure `SIGNALDESK_EVENT_SECRET` and `SIGNALDESK_EVENT_OWNER` on the server. Your first-party backend may send `visit`, `signup`, or `purchase` events to `/api/outcomes`. Supply a UUID `id`, `campaign_id`, UTC `occurred_at`, `event` and boolean `bot`. Set `X-SignalDesk-Timestamp` to Unix seconds and `X-SignalDesk-Signature` to hex HMAC-SHA256 over the timestamp, a period, and the exact UTF-8 JSON request body. Signatures expire after five minutes. Replayed IDs are deduplicated. The site backend supplies campaign attribution and bot classification. The receiver accepts no visitor profiles or sales amounts.
+
+## Verify
+
+```powershell
+npm run typecheck
+npm run lint
+npm test
 npm run build
 ```
 
-The suite invokes actual route handlers against SQLite while mocking identity/runtime bindings and X. It covers authorization, cross-owner access, persistence, edit conflicts, dates, Unicode, missing analytics, encryption, refresh rotation, duplicate publishing, ambiguous requests, rate-limit headers, and budget denial. It does not contact X.
+With the development web process already running, `npm run test:browser` exercises the local UI. On Windows it uses installed Edge. On other machines install the matching Playwright Chromium browser first. Test images are saved in the ignored `.sites-runtime/browser/` folder. Provider fixtures supply X responses in integration tests. See [delivery status](docs/delivery.md) for the scope and verification record.
 
-## Operational limits
+## Deployment, recovery and privacy
 
-This is a private MVP, not a public SaaS launch. The allowance uses conservative request reservations, including failures, and is not reconciled to the X bill. Configure X's developer-wide spending limit. Draft storage is bounded to 500 records per workspace. Metrics are a recent-post snapshot with lifetime totals, not historical follower attribution. Uncertain outcomes require investigation; logs do not include tokens or post text.
+The production build emits the Worker under `dist/server/`. Use the private Sites identity dispatcher with the configured `OWNER_USER_ID`, a D1 binding named `DB`, and an R2 binding named `BUCKET`. Set server secrets outside the source tree. Apply all `drizzle/*.sql` migrations in filename order. Configure the separate worker with the protected tick endpoint reachable at the same HTTPS origin. The web application authenticates owner requests through dispatcher-supplied identity headers. Directly exposing the raw Worker bypasses that ingress trust boundary. Public signup and billing are outside the personal release.
 
-Budget reservation totals survive workspace deletion to prevent allowance bypass. Workspace deletion removes locally stored connections; users should also revoke access in X's Connected apps settings. Disconnection attempts upstream revocation and reports when the user needs to finish on X.
+Stop both local processes before backing up `.wrangler/state`, which includes the SQLite and object-storage state. Store that backup encrypted and keep its matching encryption key in a separate secret store. Restore state to an isolated local directory first, set the original environment and verify drafts and version links with publishing paused. A JSON workspace export omits credentials and media bytes. Maintain distinct production backups of D1, R2 and server keys.
 
-Before a commercial launch, test live OAuth and subscribed endpoints; validate an operator retention/deletion process; add historical measurement only with appropriate retention, scheduling only with durable execution and duplicate reconciliation, service monitoring, key rotation, developer-wide quotas, public onboarding/access controls, and service privacy/terms. API requirements and prices can change.
+For key rotation, pause work, wait for in-flight operations, disconnect the account, and allow outstanding OAuth states to expire. Then change the encryption key, restart both processes and reconnect the same X identity. Verify the returned handle before approving new jobs. Existing stored credentials need the key that originally encrypted them.
 
-WebMCP exposes `start_x_post_draft` when supported. It opens the editor and never saves or publishes. Unsupported browsers continue normally. Live WebMCP validation passed: registration, valid editor staging, invalid-input rejection, and visible state read-back.
+Settings → Data & privacy controls export, observation retention and local data removal. The worker prunes expired snapshots in bounded batches. Private notes and opt-outs survive normal observation expiry. First-party outcome records expire after 30 days. Confirmed app-initiated deletion clears stored post content and its metric history. Upstream deletion discovered outside this app requires explicit rechecking and local cleanup. Disconnection stops future work for the account. A request already accepted by X can still complete. Workspace removal retains aggregate budget reservations used to enforce the cap.

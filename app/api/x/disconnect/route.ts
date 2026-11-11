@@ -1,4 +1,46 @@
-import {z} from 'zod';
-import {handle,owner,body,database,decrypt,AppError} from '@/lib/server';
-import {tokenRequest} from '@/lib/x-client';
-export async function POST(request:Request){return handle(async()=>{const id=await owner(request);const p=z.object({account_id:z.string().uuid()}).parse(await body(request));const db=database();const a=await db.prepare('SELECT tokens,locked_until FROM accounts WHERE id=? AND owner=?').bind(p.account_id,id).first<{tokens:string;locked_until:number}>();if(!a)throw new AppError('Account not found.',404);if(a.locked_until>Date.now())throw new AppError('An X request is running. Please wait before disconnecting.',409);const claim=await db.prepare('UPDATE accounts SET locked_until=? WHERE id=? AND owner=? AND locked_until<?').bind(Date.now()+120000,p.account_id,id,Date.now()).run();if(!claim.meta.changes)throw new AppError('An X request is running. Try again shortly.',409);let revoked=true;try{const tokens=JSON.parse(await decrypt(a.tokens));await tokenRequest({token:tokens.refresh_token||tokens.access_token},'revoke');}catch{revoked=false;}await db.batch([db.prepare('DELETE FROM accounts WHERE id=? AND owner=?').bind(p.account_id,id),db.prepare('UPDATE drafts SET account_id=NULL WHERE account_id=? AND owner=?').bind(p.account_id,id)]);return {ok:true,message:revoked?'Account disconnected and stored tokens removed.':'Stored connection removed. Also revoke this app in X’s Connected apps settings.'};});}
+import { z } from "zod";
+import { handle, owner, body, database, decrypt, AppError } from "@/lib/server";
+import { tokenRequest } from "@/lib/x-client";
+
+export async function POST(request: Request) {
+  return handle(async () => {
+    const o = await owner(request),
+      p = z
+        .object({ account_id: z.string().uuid() })
+        .strict()
+        .parse(await body(request)),
+      db = database();
+    // Removing the account triggers queue cancellation in the same database operation.
+    const removed = await db
+      .prepare(
+        "DELETE FROM accounts WHERE owner=? AND id=? RETURNING tokens,locked_until",
+      )
+      .bind(o, p.account_id)
+      .first<{ tokens: string; locked_until: number }>();
+    if (!removed) throw new AppError("Account not found.", 404);
+    let revoked = false;
+    if (removed.tokens) {
+      try {
+        const t = JSON.parse(await decrypt(removed.tokens));
+        await tokenRequest(
+          { token: t.refresh_token || t.access_token },
+          "revoke",
+        );
+        revoked = true;
+      } catch {
+        /* Local removal succeeded even if X revoke was unavailable. */
+      }
+    }
+    const active = removed.locked_until > Date.now();
+    return {
+      ok: true,
+      revoked,
+      message:
+        "Account disconnected. " +
+        (active ? "A request already in flight may finish. " : "") +
+        (revoked && !active
+          ? "Stored credentials and the X grant were removed."
+          : "Review and revoke the grant under Connected apps on X."),
+    };
+  });
+}

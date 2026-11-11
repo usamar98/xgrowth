@@ -1,6 +1,41 @@
-import {z} from 'zod';
-import {handle,owner,body,database,reserveBudget,AppError} from '@/lib/server';
-import {withAccount,xRequest,XError} from '@/lib/x-client';
-import {reviewText,canonicalText} from '@/lib/content';
-import type {Draft} from '@/lib/types';
-export async function POST(request:Request){return handle(async()=>{const id=await owner(request);const p=z.object({id:z.string().uuid(),revision:z.number().int(),confirm:z.literal(true)}).parse(await body(request));const db=database();const draft=await db.prepare('SELECT * FROM drafts WHERE id=? AND owner=?').bind(p.id,id).first<Draft>();if(!draft)throw new AppError('Draft not found.',404);if(draft.status==='published')return {post_id:draft.post_id,already_published:true};if(!['draft','planned'].includes(draft.status)||draft.revision!==p.revision)throw new AppError('This draft changed or has an unresolved publishing request. Reload your workspace.',409);if(!draft.account_id)throw new AppError('Edit this draft and select an X account first.');const review=reviewText(draft.text);if(!review.valid)throw new AppError(review.issues.join(' '));return withAccount(id,draft.account_id,async a=>{const previous=await db.prepare("SELECT text FROM drafts WHERE owner=? AND id<>? AND status IN ('published','publishing','uncertain')").bind(id,draft.id).all<{text:string}>();if(previous.results.some(d=>canonicalText(d.text)===canonicalText(draft.text)))throw new AppError('This text has already been submitted in your workspace. Write an original post.');const claimed=await db.prepare("UPDATE drafts SET status='publishing',updated_at=?,last_error=NULL WHERE id=? AND owner=? AND revision=? AND status IN ('draft','planned')").bind(new Date().toISOString(),draft.id,id,p.revision).run();if(!claimed.meta.changes)throw new AppError('This post is already being processed.',409);let reserved=false;let sent=false;try{await reserveBudget(id,review.cost);reserved=true;sent=true;const result=await xRequest<{data?:{id:string}}>(a,'tweets',{method:'POST',body:JSON.stringify({text:draft.text.trim().normalize('NFC')})});if(!result.data?.id)throw new XError('X did not return a post ID. Check your X profile before doing anything else.',200,true);await db.prepare("UPDATE drafts SET status='published',post_id=?,updated_at=?,revision=revision+1 WHERE id=? AND owner=?").bind(result.data.id,new Date().toISOString(),draft.id,id).run();return {post_id:result.data.id};}catch(e){const uncertain=e instanceof XError?e.uncertain:sent&&reserved&&!(e instanceof AppError);const message=e instanceof AppError?e.message:'The result could not be saved. Check X before posting again.';await db.prepare('UPDATE drafts SET status=?,last_error=?,updated_at=? WHERE id=? AND owner=?').bind(uncertain?'uncertain':draft.status,message,new Date().toISOString(),draft.id,id).run();throw e;}});});}
+import { z } from "zod";
+import { handle, owner, body, database, AppError } from "@/lib/server";
+import { schedule } from "@/lib/queue";
+
+export async function POST(request: Request) {
+  return handle(async () => {
+    const user = await owner(request);
+    const p = z
+      .object({
+        id: z.string().uuid(),
+        revision: z.number().int().positive(),
+        confirm: z.literal(true),
+        account_id: z.string().uuid().optional(),
+      })
+      .parse(await body(request));
+    const draft = await database()
+      .prepare(
+        "SELECT account_id,status,post_id FROM drafts WHERE owner=? AND id=?",
+      )
+      .bind(user, p.id)
+      .first<{
+        account_id: string | null;
+        status: string;
+        post_id: string | null;
+      }>();
+    if (!draft) throw new AppError("Draft not found.", 404);
+    if (draft.status === "published")
+      return { post_id: draft.post_id, already_published: true };
+    if (!draft.account_id)
+      throw new AppError("Select an X account in the draft.");
+    if (p.account_id && p.account_id !== draft.account_id)
+      throw new AppError("The account changed. Review the draft again.", 409);
+    return schedule(user, {
+      draft_id: p.id,
+      revision: p.revision,
+      account_id: draft.account_id,
+      run_at: new Date().toISOString(),
+      timezone: "UTC",
+    });
+  });
+}

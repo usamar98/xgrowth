@@ -11,7 +11,14 @@
     "build": "node scripts/run-framework.mjs build",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/migrate-local.mjs",
+    "typecheck": "tsc --noEmit",
+    "worker": "node --env-file-if-exists=.env scripts/queue-worker.mjs",
+    "test": "node scripts/test-suite.mjs",
+    "mcp": "node --env-file-if-exists=.env scripts/desk-mcp.mjs",
+    "setup:local": "node scripts/setup-local.mjs",
+    "test:browser": "node scripts/browser-smoke.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -44,6 +51,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@cloudflare/workers-types": "4.20260515.1",
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
