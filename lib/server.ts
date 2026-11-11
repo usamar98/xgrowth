@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { env, standalone } from "#signaldesk-runtime";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 export class AppError extends Error {
   constructor(
@@ -11,7 +11,9 @@ export class AppError extends Error {
 export function database() {
   if (!env.DB)
     throw new AppError(
-      "Saved data is temporarily unavailable. Please try again.",
+      standalone
+        ? "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN to enable workspace storage."
+        : "Saved data is temporarily unavailable. Please try again.",
       503,
     );
   return env.DB;
@@ -58,7 +60,7 @@ export async function owner(request?: Request) {
     );
   if (request && !["GET", "HEAD"].includes(request.method)) {
     const origin = request.headers.get("origin");
-    if (!origin || origin !== new URL(request.url).origin)
+    if (!origin || origin !== (standalone ? appOrigin() : new URL(request.url).origin))
       throw new AppError("This action must start in your workspace.", 403);
   }
   return user.userId;

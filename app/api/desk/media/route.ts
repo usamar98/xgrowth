@@ -1,7 +1,10 @@
 import { z } from "zod";
+import { standalone } from "#signaldesk-runtime";
 import { owner, handle, database, body, AppError } from "@/lib/server";
 import { imageMime, mediaBucket } from "@/lib/media";
-const max = 5 * 1024 * 1024,
+const uploadLimit = standalone
+    ? { bytes: 4_500_000, label: "4.5 MB" }
+    : { bytes: 5 * 1024 * 1024, label: "5 MB" },
   editable = "status IN ('draft','planned','pending_review')";
 async function ownedDraft(o: string, id: string) {
   const row = await database()
@@ -14,7 +17,7 @@ export async function GET(r: Request) {
   const url = new URL(r.url),
     blob = url.searchParams.get("file");
   if (blob) {
-    let file: R2ObjectBody | null = null;
+    let response: Response | undefined;
     const check = await handle(async () => {
       const o = await owner();
       const row = await database()
@@ -22,27 +25,27 @@ export async function GET(r: Request) {
         .bind(o, blob)
         .first<{ object_key: string }>();
       if (!row) throw new AppError("Image unavailable.", 404);
-      file = await mediaBucket().get(row.object_key);
+      const file = await mediaBucket().get(row.object_key);
       if (!file) throw new AppError("Image file unavailable.", 404);
+      response = new Response(file.body, {
+        headers: {
+          "Content-Type":
+            file.httpMetadata?.contentType || "application/octet-stream",
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+      });
       return { ok: true };
     });
-    if (!check.ok) return check;
-    const image = file as unknown as R2ObjectBody;
-    return new Response(image.body, {
-      headers: {
-        "Content-Type":
-          image.httpMetadata?.contentType || "application/octet-stream",
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'; sandbox",
-      },
-    });
+    return response ?? check;
   }
   return handle(async () => {
     const o = await owner(),
       id = z.string().uuid().parse(url.searchParams.get("draft_id"));
     await ownedDraft(o, id);
     return {
+      uploadLimit,
       items: (
         await database()
           .prepare(
@@ -59,8 +62,14 @@ export async function POST(r: Request) {
     const o = await owner(r),
       id = z.string().uuid().parse(new URL(r.url).searchParams.get("draft_id"));
     await ownedDraft(o, id);
-    if (!r.body || Number(r.headers.get("content-length") || 0) > max)
-      throw new AppError("Images must be 5 MB or smaller.", 413);
+    if (
+      !r.body ||
+      Number(r.headers.get("content-length") || 0) > uploadLimit.bytes
+    )
+      throw new AppError(
+        `Images must be ${uploadLimit.label} or smaller.`,
+        413,
+      );
     const reader = r.body.getReader(),
       chunks: Uint8Array[] = [];
     let size = 0;
@@ -68,9 +77,9 @@ export async function POST(r: Request) {
       const part = await reader.read();
       if (part.done) break;
       size += part.value.byteLength;
-      if (size > max) {
+      if (size > uploadLimit.bytes) {
         await reader.cancel();
-        throw new AppError("Image exceeds 5 MB.", 413);
+        throw new AppError(`Image exceeds ${uploadLimit.label}.`, 413);
       }
       chunks.push(part.value);
     }

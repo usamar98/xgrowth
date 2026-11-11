@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/dashboard-types";
 type Item = { id: string; alt: string; filename: string; position: number };
+type UploadLimit = { bytes: number; label: string };
 export function DraftMedia({
   id,
   refresh,
@@ -11,13 +12,16 @@ export function DraftMedia({
   refresh: () => void | Promise<void>;
 }) {
   const [items, setItems] = useState<Item[]>([]),
+    [uploadLimit, setUploadLimit] = useState<UploadLimit>(),
     [status, setStatus] = useState(""),
     [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     try {
-      setItems(
-        (await api<{ items: Item[] }>("/api/desk/media?draft_id=" + id)).items,
+      const result = await api<{ items: Item[]; uploadLimit: UploadLimit }>(
+        "/api/desk/media?draft_id=" + id,
       );
+      setItems(result.items);
+      setUploadLimit(result.uploadLimit);
     } catch (e) {
       setStatus((e as Error).message);
     }
@@ -50,17 +54,18 @@ export function DraftMedia({
           through the API requires verified media access.
         </p>
         <label>
-          Add an image · JPEG, PNG, WebP, up to 5 MB
+          Add an image · JPEG, PNG, WebP
+          {uploadLimit && `, up to ${uploadLimit.label}`}
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
-            disabled={busy || items.length >= 4}
+            disabled={busy || !uploadLimit || items.length >= 4}
             onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = "";
-              if (!file) return;
-              if (file.size > 5242880) {
-                setStatus("Image exceeds 5 MB.");
+              if (!file || !uploadLimit) return;
+              if (file.size > uploadLimit.bytes) {
+                setStatus(`Image exceeds ${uploadLimit.label}.`);
                 return;
               }
               void update(async () => {
@@ -73,6 +78,8 @@ export function DraftMedia({
                   body: file,
                 });
                 if (!res.ok) {
+                  if (res.status === 413)
+                    throw new Error(`Image exceeds ${uploadLimit.label}.`);
                   const d = (await res.json()) as { error: string };
                   throw new Error(d.error);
                 }

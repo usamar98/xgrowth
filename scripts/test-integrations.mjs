@@ -76,14 +76,14 @@ await build({
       name: "provider-fixture",
       setup(b) {
         for (const [filter, path] of [
-          [/^cloudflare:workers$/, "env"],
+          [/^#signaldesk-runtime$/, "env"],
           [/chatgpt-auth$/, "auth"],
           [/^next\/headers$/, "headers"],
         ])
           b.onResolve({ filter }, () => ({ path, namespace: "fixture" }));
         b.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({
           contents: {
-            env: "export const env=globalThis.xEnv;",
+            env: "export const env=globalThis.xEnv; export const standalone=false;",
             auth: "export async function getChatGPTUser(){return globalThis.xUser?{userId:globalThis.xUser}:null;}",
             headers:
               "export async function cookies(){return globalThis.xCookieJar;}",

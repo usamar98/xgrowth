@@ -1,5 +1,5 @@
 import { database } from "./server";
-import { env } from "cloudflare:workers";
+import { env } from "#signaldesk-runtime";
 export async function expireObservations() {
   const db = database();
   const now = Date.now();

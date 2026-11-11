@@ -54,7 +54,11 @@ With the development web process already running, `npm run test:browser` exercis
 
 ## Deployment, recovery and privacy
 
-The production build emits the Worker under `dist/server/`. Use the private Sites identity dispatcher with the configured `OWNER_USER_ID`, a D1 binding named `DB`, and an R2 binding named `BUCKET`. Set server secrets outside the source tree. Apply all `drizzle/*.sql` migrations in filename order. Configure the separate worker with the protected tick endpoint reachable at the same HTTPS origin. The web application authenticates owner requests through dispatcher-supplied identity headers. Directly exposing the raw Worker bypasses that ingress trust boundary. Public signup and billing are outside the personal release.
+**Vercel.** Use the repository root and the Next.js preset. The checked-in `vercel.json` runs `npm run build:vercel` and uses the native `.next` output. Configure the private owner login and a persistent libSQL database before using the hosted workspace. Setup and migration steps are in the [Vercel deployment checklist](docs/deployment-checklist.md#vercel).
+
+Run `npm run build:vercel` followed by `npm run test:vercel` to verify the manifests and exercise the compiled sign-in and API routes locally using disposable credentials.
+
+**Cloudflare / Sites.** `npm run build` emits the Worker under `dist/server/`. Use the private Sites identity dispatcher with the configured `OWNER_USER_ID`, a D1 binding named `DB`, and an R2 binding named `BUCKET`. Set server secrets outside the source tree. Apply all `drizzle/*.sql` migrations in filename order. Configure the separate worker with the protected tick endpoint reachable at the same HTTPS origin. The web application authenticates owner requests through dispatcher-supplied identity headers. Directly exposing the raw Worker bypasses that ingress trust boundary. Public signup and billing are outside the personal release.
 
 Stop both local processes before backing up `.wrangler/state`, which includes the SQLite and object-storage state. Store that backup encrypted and keep its matching encryption key in a separate secret store. Restore state to an isolated local directory first, set the original environment and verify drafts and version links with publishing paused. A JSON workspace export omits credentials and media bytes. Maintain distinct production backups of D1, R2 and server keys.
 

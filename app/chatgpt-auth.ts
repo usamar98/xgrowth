@@ -1,5 +1,7 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { standalone } from "#signaldesk-runtime";
+import { sessionCookie, sessionOwner } from "@/lib/owner-session";
 
 export type ChatGPTUser = {
   userId: string;
@@ -19,6 +21,10 @@ const SIGN_OUT_PATH = "/signout-with-chatgpt";
 const CALLBACK_PATH = "/callback";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
+  if (standalone) {
+    const id = sessionOwner((await cookies()).get(sessionCookie)?.value);
+    return id ? { userId: id, displayName: "Owner", email: "", fullName: null } : null;
+  }
   const requestHeaders = await headers();
   const userId = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);
@@ -58,7 +64,7 @@ export function chatGPTSignOutPath(returnTo = "/"): string {
   return `${SIGN_OUT_PATH}?return_to=${encodeURIComponent(safeReturnTo)}`;
 }
 
-function safeRelativeReturnPath(value: string): string {
+export function safeRelativeReturnPath(value: string): string {
   if (!value.startsWith("/") || value.startsWith("//")) return "/";
 
   let url: URL;
@@ -67,7 +73,7 @@ function safeRelativeReturnPath(value: string): string {
   } catch {
     return "/";
   }
-  if (url.origin !== "https://app.local") return "/";
+  if (url.origin !== "https://app.local" || url.pathname.startsWith("//")) return "/";
   if (isReservedAuthPath(url.pathname)) return "/";
 
   return `${url.pathname}${url.search}${url.hash}`;

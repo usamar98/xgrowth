@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { env } from "#signaldesk-runtime";
 import { AppError } from "./server";
 export function mediaBucket() {
   if (!env.BUCKET) throw new AppError("Image storage is not configured.", 503);

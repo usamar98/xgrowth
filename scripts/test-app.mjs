@@ -79,7 +79,7 @@ await build({
     {
       name: "test-runtime",
       setup(b) {
-        b.onResolve({ filter: /^cloudflare:workers$/ }, () => ({
+        b.onResolve({ filter: /^#signaldesk-runtime$/ }, () => ({
           path: "env",
           namespace: "test",
         }));
@@ -90,7 +90,7 @@ await build({
         b.onLoad({ filter: /.*/, namespace: "test" }, (args) => ({
           contents:
             args.path === "env"
-              ? "export const env=globalThis.__testEnv;"
+              ? "export const env=globalThis.__testEnv; export const standalone=false;"
               : "export async function getChatGPTUser(){return globalThis.__testOwner?{userId:globalThis.__testOwner}:null;}",
           loader: "js",
         }));
